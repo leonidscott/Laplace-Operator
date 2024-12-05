@@ -1,0 +1,15 @@
+# Project Specific
+*.csv
+
+# C++ Artifacs
+*.so
+*.o
+
+# Python
+__pycache__/
+.DS_Store
+
+# Emacs / Vim
+.\#*
+*.swp
+
