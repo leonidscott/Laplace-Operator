@@ -19,11 +19,12 @@ void prn_c_arr(double* arr, int length) {
 
 
 // Public Matrix Functions
-auto zero = [](int row){return 0;};
+auto zero = [](int row){return 0.0;};
 auto one  = [](int row){return 1;};
 
 Eigen::VectorXd def_vector(int dim, std::function<double(int)> fn) {
   Eigen::VectorXd v(dim);
+  v.setZero();
   for (int i = 0; i< dim; i++){
     v(i) = fn(i);
   }
@@ -41,37 +42,42 @@ double calc_dr(vector<double> r_pts){
 /**
    (For now) takes a list unknown points specified in radius and theta values
 **/
-Eigen::MatrixXd L2_matrix(std::vector<double> r_ups, std::vector<double> t_ups) {
+Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups) {
   //TODO: Add a check that r_ups and t_ups are the same length
   int nup = r_ups.size(); //Number of unknown points
   int dim = std::sqrt(nup);
   Eigen::MatrixXd L2(nup, nup);
+  L2.setZero();
 
   //Start Lambda Definitions
   double dr = calc_dr(r_ups);
   double dt = t_ups[1] - t_ups[0];
 
-  auto center = [r_ups, t_ups, dr, dt](int row) {
+  auto center = [r_ups, dr, dt](int row) {
     // -2 * (1/dr^2 + 1/(r^2 dt^2))
-    return -2 * (1/pow(dr, 2) + 1/(pow(r_ups[row%t_ups.size()],2) * pow(dt,2)));
+    if(std::isnan(2 * (1/pow(dr, 2) + 1/(pow(r_ups[row],2) * pow(dt,2))))) std::cout << "center NAN\n";
+    return -2.0 * (1/pow(dr, 2) + 1/(pow(r_ups[row],2) * pow(dt,2)));
   };
 
   auto l_and_r= [r_ups, dt](int row) {
     // 1 / (r^2 dt^2)
-    int r = r_ups[row];
+    double r = r_ups[row];
+    if (std::isnan(1 / (pow(r, 2) * pow(dt, 2)))) std::cout << "l_and_r NAN\n";
     return 1 / (pow(r, 2) * pow(dt, 2));
   };
 
   auto upper= [r_ups, dr](int row) {
-    // (1/dr^2 - 1/(r 2 dr))
-    int r = r_ups[row];
-    return ( 1/pow(dr,2) + (1/(r * 2 * dr)) );
+    // (1/dr^2 + 1/(r 2 dr))
+    double r = r_ups[row];
+    if (std::isnan(( 1/pow(dr,2) + (1/(r * 2 * dr)) ))) std::cout << "upper NAN\n";
+    return ( 1/pow(dr,2) + (1/(2 * r * dr)) );
   };
 
   auto lower= [r_ups, dr](int row) {
     // (1/dr^2 - 1/(r 2 dr))
-    int r = r_ups[row];
-    return ( 1/pow(dr,2) - (1/(r * 2 * dr)) );
+    double r = r_ups[row];
+    if(std::isnan( 1/pow(dr,2) - (1/(r * 2 * dr)) )) std::cout << "lower NAN\n";
+    return ( 1/pow(dr,2) - (1/(2 * r * dr)) );
   };
   //End Lambda Definitions
 
@@ -102,11 +108,11 @@ Eigen::MatrixXd L2_matrix(std::vector<double> r_ups, std::vector<double> t_ups) 
 }
 
 Eigen::VectorXd L2_polar(std::vector<double> r_ups, std::vector<double> t_ups, Eigen::VectorXd f, Eigen::VectorXd bcs) {
-  Eigen::MatrixXd L2_mat = L2_matrix(r_ups, t_ups);
+  Eigen::MatrixXd stencil= L2_stencil(r_ups, t_ups);
   Eigen::VectorXd RHS = f - bcs;
 
-  //Solve L2_mat u = RHS
-  Eigen::VectorXd unknowns = L2_mat.lu().solve(RHS);
+  //Solve L2_stencil u = RHS
+  Eigen::VectorXd unknowns = stencil.lu().solve(RHS);
   return unknowns;
 }
 
@@ -121,22 +127,22 @@ pair<vector<double>, vector<double>> polar_points(vector<double> r_locs, vector<
       t_pts[r*t_locs.size() + t] = t_locs[t];
     }
   }
-
-  utils::print_arr(r_pts);
-  utils::print_arr(t_pts);
+  std::cout << "r_pts.size(): " << r_pts.size() << std::endl;
+  std::cout << "t_pts.size(): " << t_pts.size() << std::endl;
 
   pair<vector<double>, vector<double>> polar_pts = { r_pts, t_pts };
   return polar_pts;
 }
 
 extern "C" {
-  /*double**/ void polar_laplace(int R_min, int R_max, int N, double* out){
-    // Create Internal Points
-    double const r_step = (R_max - R_min)/(N+1);
-    double const t_step = (2*M_PI- 0)/N;
+  double* polar_laplace(double R_min, double R_max, int N) {
+    std::cout << "R_min: " << R_min << std::endl;
+    std::cout << "R_max: " << R_max<< std::endl;
+    std::cout << "N: " << N << std::endl;
 
-    std::vector<double> rlocs = utils::range(1+r_step, R_max, r_step);
-    std::vector<double> tlocs = utils::range(0, 2*M_PI, t_step);
+    // Setup Internal Points
+    std::vector<double> rlocs = utils::range(R_min, R_max, N, true);
+    std::vector<double> tlocs = utils::range(0, 2*M_PI, N);
 
     vector<double> r;
     vector<double> t;
@@ -148,34 +154,44 @@ extern "C" {
     // Boundary Conditions
     // 1. R = R_min
     auto rmin_bc = [rlocs, R_min](int i) {
+      if(std::isnan((int(i/rlocs.size()) == 0 ? 0.0 : 0.0))) std::cout << "rmin_bc nan\n";
       return (int(i/rlocs.size()) == 0 ? 0.0 : 0.0);
     };
     // 2. R = R_max
     auto rmax_bc = [rlocs, tlocs, t, R_max](int i) {
       int dim = rlocs.size() * tlocs.size();
-      int t_val = t[i];
+      double t_val = t[i];
+      if(std::isnan(int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0)) std::cout << "rmax_bc nan\n";
       return (int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0);
     };
     Eigen::VectorXd bcs = \
       def_vector(rlocs.size() * tlocs.size(), rmin_bc) +
       def_vector(rlocs.size() * tlocs.size(), rmax_bc);
 
+    // Compute Laplacian
     Eigen::VectorXd L2 = L2_polar(r, t, f, bcs);
+    std::cout << "L2 Size: " << L2.size() << std::endl;
 
-    double* result;
-    Eigen::Map<Eigen::VectorXd>(result, L2.size())= L2;
-    std::cout << "hi\n";
-    prn_c_arr(result, 9);
-    out = result;
-    //return out;
+    double* tmp = new double;
+    Eigen::Map<Eigen::VectorXd>(tmp, L2.size())= L2;
+    return tmp;
+  }
+
+  void freeme(char *ptr)
+  {
+    printf("freeing address: %p\n", ptr);
+    free(ptr);
   }
 }
 
+
+
 int main() {
   std::cout << "Hello world\n";
+  /*
   double const R_max = 5;
   double const R_min = 1;
-  double const N = 3;
+  double const N = 10;
   double const r_step = (R_max - R_min)/(N+1);
   double const t_step = (2*M_PI- 0)/N;
 
@@ -211,8 +227,8 @@ int main() {
 
   Eigen::MatrixXd L2 = L2_polar(r, t, f, bcs);
   std::cout << L2 << std::endl;
+  std::cout << "L2.size(): " << L2.size() << std::endl;
+  */
 
-  double* out;
-  polar_laplace(1, 5, 3, out);
-  prn_c_arr(out, 9);
+  double* sub_out = polar_laplace(1.0, 5.0, 50);
 }
