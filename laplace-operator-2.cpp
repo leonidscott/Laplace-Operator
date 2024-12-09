@@ -52,32 +52,32 @@ Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups)
   //Start Lambda Definitions
   double dr = calc_dr(r_ups);
   double dt = t_ups[1] - t_ups[0];
+  utils::print_arr(r_ups);
+  utils::print_arr(t_ups);
+  std::cout << "dr: " << dr << std::endl;
+  std::cout << "dt: " << dt << std::endl;
 
   auto center = [r_ups, dr, dt](int row) {
     // -2 * (1/dr^2 + 1/(r^2 dt^2))
-    if(std::isnan(2 * (1/pow(dr, 2) + 1/(pow(r_ups[row],2) * pow(dt,2))))) std::cout << "center NAN\n";
-    return -2.0 * (1/pow(dr, 2) + 1/(pow(r_ups[row],2) * pow(dt,2)));
+    return (double)(-2.0 * ((1/pow(dr, 2)) + (1.0/(pow(r_ups[row],2) * pow(dt,2)))));
   };
 
   auto l_and_r= [r_ups, dt](int row) {
     // 1 / (r^2 dt^2)
     double r = r_ups[row];
-    if (std::isnan(1 / (pow(r, 2) * pow(dt, 2)))) std::cout << "l_and_r NAN\n";
-    return 1 / (pow(r, 2) * pow(dt, 2));
+    return (double)(1.0 / (pow(r, 2) * pow(dt, 2)));
   };
 
   auto upper= [r_ups, dr](int row) {
     // (1/dr^2 + 1/(r 2 dr))
     double r = r_ups[row];
-    if (std::isnan(( 1/pow(dr,2) + (1/(r * 2 * dr)) ))) std::cout << "upper NAN\n";
-    return ( 1/pow(dr,2) + (1/(2 * r * dr)) );
+    return (double)( (1.0/pow(dr,2)) + (1.0/(2.0 * r * dr)) );
   };
 
   auto lower= [r_ups, dr](int row) {
     // (1/dr^2 - 1/(r 2 dr))
     double r = r_ups[row];
-    if(std::isnan( 1/pow(dr,2) - (1/(r * 2 * dr)) )) std::cout << "lower NAN\n";
-    return ( 1/pow(dr,2) - (1/(2 * r * dr)) );
+    return (double)( (1.0/pow(dr,2)) - (1.0/(2 * r * dr)) );
   };
   //End Lambda Definitions
 
@@ -99,9 +99,9 @@ Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups)
       L2(i, i+1) = l_and_r(i);
     }
     //Upper Function
-    if(i - dim >= 0)  L2(i, i - dim) = upper(i);
+    if(i + dim < nup) L2(i, i + dim) = upper(i);
     //Lower Function
-    if(i + dim < nup) L2(i, i + dim) = lower(i);
+    if(i - dim >= 0)  L2(i, i - dim) = lower(i);
   }
 
   return L2;
@@ -154,14 +154,15 @@ extern "C" {
     // Boundary Conditions
     // 1. R = R_min
     auto rmin_bc = [rlocs, R_min](int i) {
-      if(std::isnan((int(i/rlocs.size()) == 0 ? 0.0 : 0.0))) std::cout << "rmin_bc nan\n";
       return (int(i/rlocs.size()) == 0 ? 0.0 : 0.0);
     };
     // 2. R = R_max
     auto rmax_bc = [rlocs, tlocs, t, R_max](int i) {
       int dim = rlocs.size() * tlocs.size();
       double t_val = t[i];
-      if(std::isnan(int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0)) std::cout << "rmax_bc nan\n";
+      if(int((dim-1 -i)/rlocs.size()) == 0) {
+        std::cout << i << std::endl;
+      }
       return (int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0);
     };
     Eigen::VectorXd bcs = \
@@ -171,6 +172,7 @@ extern "C" {
     // Compute Laplacian
     Eigen::VectorXd L2 = L2_polar(r, t, f, bcs);
     std::cout << "L2 Size: " << L2.size() << std::endl;
+    //std::cout << L2 << std::endl;
 
     double* tmp = new double;
     Eigen::Map<Eigen::VectorXd>(tmp, L2.size())= L2;
@@ -230,5 +232,5 @@ int main() {
   std::cout << "L2.size(): " << L2.size() << std::endl;
   */
 
-  double* sub_out = polar_laplace(1.0, 5.0, 50);
+  double* sub_out = polar_laplace(1.0, 5.0, 5);
 }

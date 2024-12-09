@@ -55,6 +55,7 @@ def create_csv(r_points,t_points,z_points):
     data = list(map((lambda r,t,z : [r, t, z]), r_points, t_points, z_points))
     with open(name, mode='w', newline='') as file:
         writer = csv.writer(file)
+        writer.writerow(fields)
         writer.writerows(data)
     print("-- CSV Writing Complete")
 
@@ -65,26 +66,34 @@ def d_range(start, end, N, st_ex=False):
         end,
         step
     )
-    return np_range.tolist()
+    return np_range[0:N].tolist()
 
 if __name__ == "__main__":
     R_min = 1
     R_max = 5
-    N = 50
+    N = 6
     r_values = seq(d_range(R_min, R_max, N, st_ex=True)) \
         .map(lambda r : [r]*N) \
         .reduce(lambda a,b: a+b) \
         .to_list()
-    print(r_values)
+    #r_values += [R_max]*N
+    #print(r_values)
     t_values = list(reduce(
         (lambda a,b:a+b),
         [d_range(0, 2*math.pi, N)]*N))
-    print(t_values)
+    #print(r_values)
+    #print(t_values)
+    #t_values += t_values[0:N-1]
+    #print(t_values)
 
     print("===== C++ Starts ===== ")
     z_values = polar_laplace(R_min, R_max, N)
     print("===== C++ Ends ===== ")
-
+    #print(r_values)
+    #print(t_values)
+    #bc_pts = list(map((lambda r,t: r * math.sin(t)), r_values[-N:], t_values[-N:]))
+    #z_values += bc_pts
+    #print(z_values)
     create_csv(r_values, t_values, z_values)
 
     # Plot Values
