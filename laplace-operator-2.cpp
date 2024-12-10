@@ -1,6 +1,7 @@
 #define _USE_MATH_DEFINES
 #include <iostream>
-#include <Eigen/Dense>
+#include <Eigen/SparseCore>
+#include <Eigen/SparseLU>
 #include <unsupported/Eigen/KroneckerProduct>
 #include <cmath>
 #include <functional>
@@ -42,12 +43,14 @@ double calc_dr(vector<double> r_pts){
 /**
    (For now) takes a list unknown points specified in radius and theta values
 **/
-Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups) {
+Eigen::SparseMatrix<double> L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups) {
   //TODO: Add a check that r_ups and t_ups are the same length
   int nup = r_ups.size(); //Number of unknown points
   int dim = std::sqrt(nup);
-  Eigen::MatrixXd L2(nup, nup);
-  L2.setZero();
+
+  Eigen::SparseMatrix<double> Stencil(nup,nup);
+  Stencil.reserve(Eigen::VectorXi::Constant(nup, 5));
+  // ↑ Because we have a 5 point stencil, most columns will have 5 non zero values
 
   //Start Lambda Definitions
   double dr = calc_dr(r_ups);
@@ -79,36 +82,39 @@ Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups)
 
   for (int i = 0; i < nup; i++){
     //Center Function
-    L2(i,i) = center(i);
+    Stencil.coeffRef(i,i) = center(i);
     //Left & Right
     switch((i+1) % dim) {
     case 1: //First row of T Matrix
-      L2(i, i+1) = l_and_r(i);
-      L2(i, i + (dim-1)) = l_and_r(i);
+      Stencil.coeffRef(i, i+1) = l_and_r(i);
+      Stencil.coeffRef(i, i + (dim-1)) = l_and_r(i);
       break;
     case 0: //Last row of T matrix
-      L2(i, i-1) = l_and_r(i);
-      L2(i, i - (dim-1)) = l_and_r(i);
+      Stencil.coeffRef(i, i-1) = l_and_r(i);
+      Stencil.coeffRef(i, i - (dim-1)) = l_and_r(i);
       break;
     default: //All ofther rows of T matrix
-      L2(i, i-1) = l_and_r(i);
-      L2(i, i+1) = l_and_r(i);
+      Stencil.coeffRef(i, i-1) = l_and_r(i);
+      Stencil.coeffRef(i, i+1) = l_and_r(i);
     }
     //Upper Function
-    if(i + dim < nup) L2(i, i + dim) = upper(i);
+    if(i + dim < nup) Stencil.coeffRef(i, i + dim) = upper(i);
     //Lower Function
-    if(i - dim >= 0)  L2(i, i - dim) = lower(i);
+    if(i - dim >= 0)  Stencil.coeffRef(i, i - dim) = lower(i);
   }
 
-  return L2;
+  Stencil.makeCompressed();
+  return Stencil;
 }
 
 Eigen::VectorXd L2_polar(std::vector<double> r_ups, std::vector<double> t_ups, Eigen::VectorXd f, Eigen::VectorXd bcs) {
-  Eigen::MatrixXd stencil= L2_stencil(r_ups, t_ups);
+  Eigen::SparseMatrix<double> stencil= L2_stencil(r_ups, t_ups);
   Eigen::VectorXd RHS = f - bcs;
 
   //Solve L2_stencil u = RHS
-  Eigen::VectorXd unknowns = stencil.lu().solve(RHS);
+  Eigen::SparseLU<Eigen::SparseMatrix<double>> lu_decomp;
+  lu_decomp.compute(stencil);
+  Eigen::VectorXd unknowns = lu_decomp.solve(RHS);
   return unknowns;
 }
 
@@ -250,5 +256,5 @@ int main() {
   std::cout << "L2.size(): " << L2.size() << std::endl;
   */
 
-  double* sub_out = polar_laplace(1.0, 5.0, 5,0);
+  double* sub_out = polar_laplace(1.0, 5.0, 100,1);
 }

@@ -109,10 +109,6 @@ def call_cpp(R_min, R_max, N, bc_type):
     laplace.create_csv(rs, ts, zs)
 
 def add_bcs(R_min,R_max,N, r,t,z, bc_type):
-    print("len(r): " + str(len(r)))
-    print("len(t): " + str(len(t)))
-    print("len(z): " + str(len(z)))
-
     BC_rmin = (lambda t : 0)
     BC_rmax = (psi_exact if bc_type == "exact" else sin_bc)
     # Inner BCs
@@ -122,8 +118,6 @@ def add_bcs(R_min,R_max,N, r,t,z, bc_type):
     # Outer BCs
     outer_r = [R_max]*N
     outer_t = d_range(0, 2*math.pi, N)
-    print("len(outer_r): " + str(len(outer_r)))
-    print("len(outer_t): " + str(len(outer_t)))
     outer_z = list(map(BC_rmax, outer_r, outer_t))
     # Construct Complete Values
     return {'r' : inner_r + list(r) + outer_r,
@@ -144,7 +138,7 @@ def print_max_err(exact_vals, approx_vals):
 if __name__ == "__main__":
     R_min = 1
     R_max = 15
-    N = 20
+    N = 100
     bc_type = 'exact'
     # Parse Cmd args
     cmd_args = list(map((lambda a : a.lower()), sys.argv))
@@ -162,18 +156,16 @@ if __name__ == "__main__":
     exact = exact_solution(R_min, R_max, N, bc_type)
     exact_r, exact_t, exact_phi = exact['r'], exact['t'], exact['phi']
 
+    print_max_err(exact_phi, z_values)
+
     # Add BCs
     aprx_bcs = add_bcs(R_min, R_max, N, r_values, t_values, z_values, bc_type)
     aprx_r, aprx_t, aprx_phi = aprx_bcs['r'], aprx_bcs['t'], aprx_bcs['z']
-    print("len(aprx_r): "   + str(len(aprx_r)))
-    print("len(aprx_t): "   + str(len(aprx_t)))
-    print("len(aprx_phi): " + str(len(aprx_phi)))
 
     exact_bcs = add_bcs(R_min, R_max, N, exact_r, exact_t, exact_phi, bc_type)
     exact_r, exact_t, exact_phi = exact_bcs['r'], exact_bcs['t'], exact_bcs['z']
 
-
-    print_max_err(exact_phi, z_values)
+    # Start Plots
     if "AllPlots".lower() in cmd_args:
         cmd_args = ["approx3d", "approxcontour", "exact3d", "exactcontour", "error3d"]
     if "Approx3D".lower() in cmd_args:
