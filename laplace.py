@@ -11,7 +11,7 @@ from functools import reduce
 def polar_laplace(R_min, R_max, N, bc_type):
     bc_int = (0 if bc_type == "sin" else 1)
     # Setup Interface to C++ Function
-    libname=pathlib.Path().absolute() / "laplace-operator-2.o"
+    libname=pathlib.Path().absolute() / "numerical-methods.o"
     c_lib = ctypes.CDLL(libname)
     polar_laplace = c_lib.polar_laplace
     polar_laplace.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_int, ctypes.c_int]
@@ -23,7 +23,6 @@ def polar_laplace(R_min, R_max, N, bc_type):
     #for i in range(N*N):
     #    print(arr[i])
     z_values = list(map((lambda i : arr[i]), range(N*N)))
-    print(z_values[0:10])
 
     # Free pointer
     #free = c_lib.freeme

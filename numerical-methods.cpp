@@ -21,7 +21,7 @@ void prn_c_arr(double* arr, int length) {
 
 // Public Matrix Functions
 auto zero = [](int row){return 0.0;};
-auto one  = [](int row){return 1;};
+auto one  = [](int row){return 1.0;};
 
 Eigen::VectorXd def_vector(int dim, std::function<double(int)> fn) {
   Eigen::VectorXd v(dim);
@@ -214,47 +214,6 @@ extern "C" {
 
 int main() {
   std::cout << "Hello world\n";
-  /*
-  double const R_max = 5;
-  double const R_min = 1;
-  double const N = 10;
-  double const r_step = (R_max - R_min)/(N+1);
-  double const t_step = (2*M_PI- 0)/N;
-
-  //Excluding Boundary Conditions for now
-  std::vector<double> rlocs = utils::range(1+r_step, R_max, r_step);
-  utils::print_arr(rlocs);
-  std::cout << "rlocs.size() " << rlocs.size() << std::endl;
-  std::vector<double> tlocs = utils::range(0, 2*M_PI, t_step);
-  utils::print_arr(tlocs);
-  std::cout << "tlocs.size() " << tlocs.size() << std::endl;
-
-  vector<double> r;
-  vector<double> t;
-  std::tie(r,t) = polar_points(rlocs, tlocs);
-
-  // F function
-  Eigen::VectorXd f = def_vector(rlocs.size() * tlocs.size(), zero);
-
-  // Boundary Conditions
-  // 1. R = R_min
-  auto rmin_bc = [rlocs, R_min](int i) {
-    return (int(i/rlocs.size()) == 0 ? 0.0 : 0.0);
-  };
-  // 2. R = R_max
-  auto rmax_bc = [rlocs, tlocs, t, R_max](int i) {
-    int dim = rlocs.size() * tlocs.size();
-    int t_val = t[i];
-    return (int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0);
-  };
-  Eigen::VectorXd bcs = \
-    def_vector(rlocs.size() * tlocs.size(), rmin_bc) +
-    def_vector(rlocs.size() * tlocs.size(), rmax_bc);
-
-  Eigen::MatrixXd L2 = L2_polar(r, t, f, bcs);
-  std::cout << L2 << std::endl;
-  std::cout << "L2.size(): " << L2.size() << std::endl;
-  */
 
   double* sub_out = polar_laplace(1.0, 5.0, 100,1);
 }
