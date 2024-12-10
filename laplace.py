@@ -8,16 +8,17 @@ import csv
 from functional import seq
 from functools import reduce
 
-def polar_laplace(R_min, R_max, N):
+def polar_laplace(R_min, R_max, N, bc_type):
+    bc_int = (0 if bc_type == "sin" else 1)
     # Setup Interface to C++ Function
     libname=pathlib.Path().absolute() / "laplace-operator-2.o"
     c_lib = ctypes.CDLL(libname)
     polar_laplace = c_lib.polar_laplace
-    polar_laplace.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_int]
+    polar_laplace.argtypes = [ctypes.c_double, ctypes.c_double, ctypes.c_int, ctypes.c_int]
     polar_laplace.restype = ctypes.POINTER(ctypes.c_double)
     # Setup Interface to C++ Function
 
-    arr = polar_laplace(ctypes.c_double(R_min), ctypes.c_double(R_max), N)
+    arr = polar_laplace(ctypes.c_double(R_min), ctypes.c_double(R_max), N, bc_int)
     print("just finished")
     #for i in range(N*N):
     #    print(arr[i])
@@ -72,6 +73,7 @@ if __name__ == "__main__":
     R_min = 1
     R_max = 5
     N = 6
+    bc_type = "sin"
     r_values = seq(d_range(R_min, R_max, N, st_ex=True)) \
         .map(lambda r : [r]*N) \
         .reduce(lambda a,b: a+b) \
@@ -87,7 +89,7 @@ if __name__ == "__main__":
     #print(t_values)
 
     print("===== C++ Starts ===== ")
-    z_values = polar_laplace(R_min, R_max, N)
+    z_values = polar_laplace(R_min, R_max, N, bc_type)
     print("===== C++ Ends ===== ")
     #print(r_values)
     #print(t_values)

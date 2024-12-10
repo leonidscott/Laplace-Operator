@@ -52,14 +52,10 @@ Eigen::MatrixXd L2_stencil(std::vector<double> r_ups, std::vector<double> t_ups)
   //Start Lambda Definitions
   double dr = calc_dr(r_ups);
   double dt = t_ups[1] - t_ups[0];
-  utils::print_arr(r_ups);
-  utils::print_arr(t_ups);
-  std::cout << "dr: " << dr << std::endl;
-  std::cout << "dt: " << dt << std::endl;
 
   auto center = [r_ups, dr, dt](int row) {
     // -2 * (1/dr^2 + 1/(r^2 dt^2))
-    return (double)(-2.0 * ((1/pow(dr, 2)) + (1.0/(pow(r_ups[row],2) * pow(dt,2)))));
+    return (double)(-2.0 * ((1.0/pow(dr, 2)) + (1.0/(pow(r_ups[row],2) * pow(dt,2)))));
   };
 
   auto l_and_r= [r_ups, dt](int row) {
@@ -134,11 +130,24 @@ pair<vector<double>, vector<double>> polar_points(vector<double> r_locs, vector<
   return polar_pts;
 }
 
+double exact_potential(double r, double t) {
+  double const R = 1.0;
+  double const U = 1.0;
+  return ( (r - (pow(R,2)/r)) * U * sin(t) );
+}
+
 extern "C" {
-  double* polar_laplace(double R_min, double R_max, int N) {
-    std::cout << "R_min: " << R_min << std::endl;
-    std::cout << "R_max: " << R_max<< std::endl;
-    std::cout << "N: " << N << std::endl;
+  /*
+   * BC_type selects the BC at R_max:
+   *   0 = R_max * sin(t)
+   *   1 = Exact Solution
+   */
+  double* polar_laplace(double R_min, double R_max, int N, int BC_type) {
+    std::cout << "Laplace Settings: \n";
+    std::cout << "  R_min: " << R_min << std::endl;
+    std::cout << "  R_max: " << R_max<< std::endl;
+    std::cout << "  N: " << N << std::endl;
+    std::cout << "  BC_type: " << (BC_type == 0 ? "sin" : "exact") << std::endl << std::endl;
 
     // Setup Internal Points
     std::vector<double> rlocs = utils::range(R_min, R_max, N, true);
@@ -157,14 +166,24 @@ extern "C" {
       return (int(i/rlocs.size()) == 0 ? 0.0 : 0.0);
     };
     // 2. R = R_max
-    auto rmax_bc = [rlocs, tlocs, t, R_max](int i) {
+    double const dr = calc_dr(r);
+    double scaling_value = ((1.0/pow(dr, 2) + ((1.0/(R_max - dr) * (1.0/(2.0*dr))))));
+
+    std::function<double(int)> sin_bc = [rlocs, tlocs, t, R_max, scaling_value](int i) {
       int dim = rlocs.size() * tlocs.size();
       double t_val = t[i];
       if(int((dim-1 -i)/rlocs.size()) == 0) {
-        std::cout << i << std::endl;
       }
-      return (int((dim-1 -i)/rlocs.size()) == 0 ? R_max*sin(t_val) : 0.0);
+      return (int((dim-1 -i)/rlocs.size()) == 0 ? scaling_value * R_max*sin(t_val) : 0.0);
+      };
+
+    std::function<double(int)> exact_bc = [rlocs, tlocs, t , scaling_value, R_max](int i) {
+      int dim = rlocs.size() * tlocs.size();
+      double t_val = t[i];
+      return (int((dim-1 -i)/rlocs.size()) == 0 ? scaling_value * exact_potential(R_max,t_val) : 0.0);
     };
+    std::function<double(int)> rmax_bc = (BC_type == 1 ? exact_bc : sin_bc);
+
     Eigen::VectorXd bcs = \
       def_vector(rlocs.size() * tlocs.size(), rmin_bc) +
       def_vector(rlocs.size() * tlocs.size(), rmax_bc);
@@ -172,7 +191,6 @@ extern "C" {
     // Compute Laplacian
     Eigen::VectorXd L2 = L2_polar(r, t, f, bcs);
     std::cout << "L2 Size: " << L2.size() << std::endl;
-    //std::cout << L2 << std::endl;
 
     double* tmp = new double;
     Eigen::Map<Eigen::VectorXd>(tmp, L2.size())= L2;
@@ -232,5 +250,5 @@ int main() {
   std::cout << "L2.size(): " << L2.size() << std::endl;
   */
 
-  double* sub_out = polar_laplace(1.0, 5.0, 5);
+  double* sub_out = polar_laplace(1.0, 5.0, 5,0);
 }
