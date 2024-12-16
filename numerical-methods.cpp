@@ -57,9 +57,27 @@ namespace numerical_methods {
   }
 
   Eigen::SparseMatrix<double> D1_periodic(int const dim) {
+    int indim = std::sqrt(dim);
     Eigen::SparseMatrix<double> D1p= D1(dim);
-    D1p.coeffRef(0,dim-1) = 1;
-    D1p.coeffRef(dim-1, 0) = 1;
+    D1p.reserve(Eigen::VectorXi::Constant(dim, 3));
+    for(int i = 0; i < dim ; i++) {
+      //Center Function
+      D1p.coeffRef(i,i) = -1.0;
+      //Left & Right
+      switch((i+1) % indim) {
+      case 1: //First row of T Matrix
+        D1p.coeffRef(i, i+1) =  1;
+        D1p.coeffRef(i, i + (indim-1)) = 1;
+        break;
+      case 0: //Last row of T matrix
+        D1p.coeffRef(i, i-1) = 1;
+        D1p.coeffRef(i, i - (indim-1)) = 1;
+        break;
+      default: //All ofther rows of T matrix
+        D1p.coeffRef(i, i-1) = 1;
+        D1p.coeffRef(i, i+1) = 1;
+      }
+    }
     D1p.makeCompressed();
     return D1p;
   }

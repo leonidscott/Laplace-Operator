@@ -1,11 +1,13 @@
 import os
 import pandas
+import math
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from matplotlib.animation import FFMpegWriter
 from scipy.interpolate import griddata
 
-def contour_plot(r_values, theta_values, z_values, var_name):
+def contour_plot(r_values, theta_values, z_values, var_name, sub_plt=None):
     r     = np.array(r_values)
     theta = np.array(theta_values)
     z     = np.array(z_values)
@@ -24,10 +26,11 @@ def contour_plot(r_values, theta_values, z_values, var_name):
     Z = griddata((x,y), z, (X,Y))
 
     # Create Plot
-    fig, ax = plt.subplots()
+    fig, ax = (sub_plt if sub_plt else plt.subplots())
     ax.set_title(var_name)
     contour = ax.contourf(X,Y,Z, levels=50, cmap='viridis')
-    fig.colorbar(contour, label=var_name)
+    if(not sub_plt):
+        fig.colorbar(contour, label=var_name)
 
     # Add Circle
     circle = patches.Circle((0,0), radius=1, edgecolor='black', facecolor='white')
@@ -68,8 +71,42 @@ def contour_plot_vector(r_values, theta_values, zr_values, ztheta_values, direct
     circle = patches.Circle((0,0), radius=1, edgecolor='black', facecolor='white')
     ax.add_patch(circle)
 
+def create_movie(r, theta, omega, iterations):
+    plt.rcParams['animation.ffmpeg_path'] = "/opt/homebrew/bin/ffmpeg"
+    metadata = dict(title='Movie', artist='codinglikemad')
+    writer = FFMpegWriter(fps=15, metadata=metadata)
+    subplt = fig, ax = plt.subplots()
+
+    fdim = len(r)
+    with writer.saving(fig, "omega.mp4", 400):
+        def create_frame(it):
+            print("creating frame for iteration: " + str(it))
+            iteration_index = fdim*(it-1)
+            it_omega = omega[iteration_index:iteration_index+fdim]
+            contour_plot(r, theta, it_omega, "Omega", subplt)
+            writer.grab_frame()
+            plt.cla()
+        list(map(create_frame, iterations))
+
+def snapshot(r, theta, phi, U_r, U_theta, iteration):
+    fdim = len(r)
+    iteration_index = fdim*(iteration-1)
+    it_omega = omega[iteration_index:iteration_index+fdim]
+    it_phi   = phi[iteration_index:iteration_index+fdim]
+    it_U_r   = U_r[iteration_index:iteration_index+fdim]
+    it_U_theta = U_theta[iteration_index:iteration_index+fdim]
+
+    print("Omega Plot")
+    contour_plot(r,theta, it_omega, "Iteration: " + str(iteration) + " Omega")
+    print("Phi Plot")
+    contour_plot(r,theta, it_phi,   "Iteration: " + str(iteration) + " Phi")
+    print("U_r Plot")
+    contour_plot_vector(r,theta, it_U_r, it_U_theta, "x", "Iteration: " + str(iteration) + " U_x")
+    print("U_theta Plot")
+    contour_plot_vector(r,theta, it_U_r, it_U_theta, "y", "Iteration: " + str(iteration) + " U_y")
+
 if __name__ == "__main__":
-    iteration = 1
+    iterations = 24
 
     grid_csv_name = os.path.abspath(os.getcwd()) + "/grid.csv"
     grid_csv = pandas.read_csv(
@@ -83,14 +120,10 @@ if __name__ == "__main__":
                "phi" : float, "U_r" : float, "U_theta" : float}).values.tolist()
     [omega, phi, U_r, U_theta] = list(zip(*solver_csv))
 
-    fdim = len(r)
-    it_omega = omega[iteration-1:iteration-1+fdim]
-    it_phi   = phi[iteration-1:iteration-1+fdim]
-    it_U_r   = U_r[iteration-1:iteration-1+fdim]
-    it_U_theta = U_theta[iteration-1:iteration-1+fdim]
+    #create_movie(r, theta, omega, range(1,iterations+1))
 
-    contour_plot(r,theta, it_omega, "Omega")
-    contour_plot(r,theta, it_phi,   "Phi")
-    contour_plot_vector(r,theta, it_U_r, it_U_theta, "x", "U_x")
-    contour_plot_vector(r,theta, it_U_r, it_U_theta, "y", "U_y")
+    #snapshot(r, theta, phi, U_r, U_theta, 1)
+    #snapshot(r, theta, phi, U_r, U_theta, 2)
+    #snapshot(r, theta, phi, U_r, U_theta, 3)
+    snapshot(r, theta, phi, U_r, U_theta, iterations)
     plt.show()

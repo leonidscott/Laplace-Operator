@@ -46,17 +46,46 @@ double phi_bc(double const R_min, double r, double t) {
   }
 }
 
+double gaussian_omega_ic(double r, double theta) {
+  return pow(M_E,
+             (-1.0 * (pow((r - 2.5), 2) +
+                      pow((theta - M_PI), 2))));
+}
+
+int closest_val_idx(Eigen::VectorXd vec, double target) {
+    auto err = [](double val, double target) {return abs(target - val);};
+    vector<double> err_vec(vec.rows());
+    std::transform(vec.data(), vec.data() + vec.size(), err_vec.begin(),
+                   [err, target](double val){ return err(val, target); });
+    std::vector<double>::iterator err_min = std::min_element(err_vec.begin(), err_vec.end());
+    int min_idx = std::distance(err_vec.begin(), err_min);
+    return min_idx;
+}
+
+
+bool nan_trap(Eigen::VectorXd v, string vname) {
+  vector<double> nans = {};
+  std::copy_if(v.data(), v.data()+v.size(), back_inserter(nans),
+               [vname](double el) {
+                 return isnan(el);
+               });
+  if(nans.size() > 1) {std::cout << nans.size() << " nans in " << vname << std::endl;}
+  return (nans.size() > 1);
+}
+
 class Solver {
   // Grid Variables
   Eigen::VectorXd full_r, full_theta;
   double const R_min;
   double const R_max;
+  double dr;
   int const N;
   int const indim;
   int const fdim;
 
   // Fluid Variables
   Eigen::VectorXd ic_omega, ic_phi;
+  Eigen::VectorXd spg_layer;
 
   // Derivative Stencils
   Eigen::SparseMatrix<double> D1, D1_periodic, L2_stencil;
@@ -98,29 +127,59 @@ class Solver {
     // ↓ Populate Omega
     //   NOTE: Omega BC's depend on the phi values,
     //         Applying omega BC's must happen AFTER appling phi BC's for correct results.
-    double const dr = grid::calc_dr(full_r);
-    auto marshalled_omega_bc = [R_min, R_max, dr, N, full_r, full_phi](int row) {
+
+    /*
+    auto marshalled_omega_bc = [R_min, R_max, dr=this->dr, N, full_r, full_phi](int row) {
       return omega_bc(R_min, R_max, dr, N, full_r, full_phi, row);
     };
     Eigen::VectorXd full_omega = nm::def_vector(fdim, marshalled_omega_bc);
+    */
+
+    Eigen::VectorXd full_omega(fdim);
+    std::transform(full_r.data(), full_r.data() + full_r.size(),
+                   full_theta.data(), full_omega.data(),
+                   [](double r, double theta){ return gaussian_omega_ic(r, theta); });
+
+    // Add purtabation at omega(R=2.5, θ=Pi)
+    /*
+    double const target_r = 2.5;
+    double const target_theta = M_PI;
+    int r_idx = closest_val_idx(full_r, target_r);
+    int theta_idx = closest_val_idx(full_theta, target_theta);
+    full_omega(r_idx + theta_idx) = 12;
+    */
 
     return {full_omega, full_phi};
   }
 
-  // Leaving out BC functions until we know we need them
-  // f is a vector in indim size
-  Eigen::VectorXd L2_solve(Eigen::VectorXd f) {
-    return L2_in_decomp.solve(f);
+  Eigen::VectorXd sponge_layer(Eigen::VectorXd full_r, double R_max) {
+    auto sl = [R_max](int r) {
+      return pow(fmax(r - (R_max - 2), 0)/2.0, 2);
+    };
+    Eigen::VectorXd s_layer(full_r.rows());
+    std::transform(full_r.data(), full_r.data() + full_r.size(), s_layer.data(), sl);
+    return s_layer;
   }
 
-  void solver_loop(int iters_2go, Eigen::VectorXd full_omega, Eigen::VectorXd full_phi) {
+  // Leaving out BC functions until we know we need them
+  // f is a vector in indim size
+  Eigen::VectorXd L2_solve(Eigen::VectorXd f, Eigen::VectorXd bcs) {
+    double scaling_value = ((1.0/pow(dr, 2) + ((1.0/(R_max - dr) * (1.0/(2.0*dr))))));
+    return L2_in_decomp.solve(scaling_value * f - scaling_value * bcs);
+  }
+
+void solver_loop (int iters_2go, const Eigen::MatrixXd& full_omega, const Eigen::MatrixXd& full_phi) {
     std::cout << "-> Starting iteration: " << max_iters - iters_2go << std::endl;
 
     /** 1. Calculate radial and theta components of velocity
-     * U_r = 1/2 * dphi/dr, U_theta = -1 * dphi/dr
+     * U_r = 1/r * dphi/dtheta, U_theta = -1 * dphi/dr
      **/
+    Eigen::VectorXd r_inv(this->fdim);
+    std::transform(full_r.data(), full_r.data() + full_r.size(), r_inv.data(),
+                   [](double r){ return (double)(1.0/r); });
+    Eigen::VectorXd Dphi_Dtheta= D1_periodic * full_phi;
+    Eigen::VectorXd U_r = r_inv.cwiseProduct(Dphi_Dtheta);
     Eigen::VectorXd Dphi_Dr = D1 * full_phi;
-    Eigen::VectorXd U_r = 0.5 * Dphi_Dr;
     Eigen::VectorXd U_theta = -1.0 * Dphi_Dr;
 
     /** 2. Use U_r and U_theta to calculate omega@t=n+1
@@ -132,24 +191,31 @@ class Solver {
     Eigen::VectorXd Domega_Dr = D1 * full_omega;
 
     // 2.b) Laplacian of omega (L2*omega)
-    Eigen::VectorXd grad2_omega = nm::L2_stencil(full_r, full_theta) * full_omega;
-
-    // 2.c) r_inv
-    Eigen::VectorXd r_inv(fdim);
-    std::transform(full_r.data(), full_r.data() + full_r.size(), r_inv.data(),
-                   [](double r){ return (double)1/r; });
+    Eigen::VectorXd grad2_omega = L2_stencil * full_omega;
 
     // 2.c) Calculate omega@n+1
-    // Should maybe be called full_full_omega_np1
     Eigen::VectorXd full_omega_np1 = full_omega + dt *
-      (((1 / Redh) * grad2_omega) +
-       U_r.cwiseProduct(Domega_Dr) +
-       r_inv.cwiseProduct(U_theta).cwiseProduct(Domega_Dtheta));
+      (((1 / Redh) * grad2_omega) -
+       U_r.cwiseProduct(Domega_Dr) -
+       r_inv.cwiseProduct(U_theta).cwiseProduct(Domega_Dtheta) -
+       (spg_layer.cwiseProduct(full_omega))
+       );
 
+    nan_trap(full_omega_np1, "full_omega_np1 - right after assignment");
     /** 3. Solve for in_phi@n+1
      *  grad2(in_phi@n+1) = -in_full_omega_np1
      **/
-    Eigen::VectorXd in_phi_np1 = L2_solve(-1.0*full_omega_np1(Eigen::seq(N,Eigen::last-N)));
+    Eigen::VectorXd phi_bcs(indim);
+    phi_bcs.setZero();
+    Eigen::VectorXd ub_r      = full_r(Eigen::seq(Eigen::last-N+1, Eigen::last));     //r, upper boundary points
+    Eigen::VectorXd ub_theta  = full_theta(Eigen::seq(Eigen::last-N+1, Eigen::last)); //theta, upper boundary points
+    std::transform(ub_r.data(), ub_r.data()+ ub_r.size(),
+                   ub_theta.data(), phi_bcs.data()+phi_bcs.size() - N,
+                   [R_min = this->R_min](double r, double theta) {
+                     return phi_bc(R_min, r, theta);
+                   });
+    Eigen::VectorXd in_phi_np1 = L2_solve(-1.0*full_omega_np1(Eigen::seq(N,Eigen::last-N)), phi_bcs);
+    nan_trap(in_phi_np1, "in_phi_np1");
 
 
     /** 4. Apply BC's **/
@@ -164,8 +230,8 @@ class Solver {
     //    -> Interior Points
     full_phi_np1(Eigen::seq(N, Eigen::last-N)) = in_phi_np1;
     //    -> Upper BC
-    Eigen::VectorXd ub_r      = full_r(Eigen::seq(Eigen::last-N+1, Eigen::last));     //r, upper boundary points
-    Eigen::VectorXd ub_theta  = full_theta(Eigen::seq(Eigen::last-N+1, Eigen::last)); //theta, upper boundary points
+    //Eigen::VectorXd ub_r      = full_r(Eigen::seq(Eigen::last-N+1, Eigen::last));     //r, upper boundary points
+    //Eigen::VectorXd ub_theta  = full_theta(Eigen::seq(Eigen::last-N+1, Eigen::last)); //theta, upper boundary points
     std::transform(ub_r.data(), ub_r.data() + ub_r.size(),
                    ub_theta.data(), full_phi_np1.data()+full_phi_np1.size()-N,
                    [R_min = this->R_min](double r, double theta){
@@ -173,8 +239,7 @@ class Solver {
                    });
 
     // 4.b) Omega
-    double const dr = grid::calc_dr(full_r); //Might be able to take this out of the loop
-    auto apply_omega_bc = [R_min = this->R_min, R_max=this->R_max, dr,
+    auto apply_omega_bc = [R_min = this->R_min, R_max=this->R_max, dr=this->dr,
                            N=this->N, full_r = this->full_r, full_phi] (int row) {
       return omega_bc(R_min, R_max, dr, N, full_r, full_phi, row);
     };
@@ -191,14 +256,16 @@ class Solver {
      * NOTE: Time/iteration needs to be introduced into the csv
      **/
     // Fix this so it points to iterations
-    if ((iters_2go + 1)%nplot == 0 || iters_2go == 0) {
+    if ((max_iters-iters_2go)%nplot == 0 || iters_2go == 0) {
       // Path should probs be passed in as an absolute path but later
-      std::cout << "Writing Solution\n";
+      std::cout << "Writing Solution @ iteration " << max_iters-iters_2go << std::endl;
       string absolute_path =  std::__fs::filesystem::current_path();
       grid::write_fluid_vars(absolute_path + "/" + solf_name,
                              {full_omega_np1, full_phi_np1, U_r, U_theta},
                              false);
     }
+
+    if(nan_trap(full_omega_np1, "full_omega_np1")) return;
 
     /** Conditionally Recurse **/
     if (iters_2go == 0) {
@@ -216,6 +283,7 @@ public:
     // Create Grid
     std::tie(this->full_r, this->full_theta) = create_grid(R_min, R_max, N);
     write_grid(this->full_r, this->full_theta, gf_name);
+    this->dr = grid::calc_dr(this->full_r);
 
     // Populate stencils once instead of once per iteration
     this->D1 = nm::D1(fdim);
@@ -225,8 +293,15 @@ public:
                                                                this->full_theta(Eigen::seq(N,Eigen::last-N)));
     this->L2_in_decomp.compute(L2_in_stencil);
 
+    //Compute Sponge Layer
+    this->spg_layer = sponge_layer(this->full_r, this->R_max);
+
     // Apply BC's
     std::tie(this->ic_omega, this-> ic_phi) = apply_bcs(R_min, R_max, N, this->full_r, this->full_theta);
+  }
+
+  ~Solver() {
+    //IDK I think things are fine
   }
 
   void run(int const iterations, int const nplot,
@@ -258,17 +333,17 @@ void cpp_version() {
 
 void solver_controller() {
   // Grid Variables
-  int const N = 50;
+  int const N = 100;
   double const R_min = 1.0;
-  double const R_max = 15.0;
+  double const R_max = 20.0;
 
   // Solver Variables
-  double total_run_time = 25.0;
+  double total_run_time = 60;
   double const dt = 0.01;
   int const iterations = total_run_time/dt;
 
-  int const nplot = iterations; //Just print at the end
-  double const Redh = 48.0;
+  int const nplot = 100; //Just print at the end
+  double const Redh = 23.0;
 
   Solver solver(R_min, R_max, N, "grid.csv");
   solver.run(iterations, nplot, dt, Redh, "solver-data.csv");
